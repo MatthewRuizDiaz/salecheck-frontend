@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>frontend</title>
+  </head>
+  <body>
+    <!-- Main Container Fixed at 460px -->
+    <div id="app" class="w-[460px] h-[500px] bg-neutral-700 flex flex-col overflow-hidden font-['Inter']" x-data="product_list()">
+      
+      <!-- Action Bar -->
+      <div class="flex-shrink-0 px-3 mt-2">
+        <button 
+          @click="trackCurrentProduct()"
+          :disabled="loading"
+          class="w-full bg-neutral-600 hover:bg-neutral-500 disabled:opacity-50 text-[#81DD7D] font-bold py-2.5 rounded shadow-md transition-colors text-base"
+        >
+          <span x-show="!loading">Track This Product</span>
+          <span x-show="loading">Loading...</span>
+        </button>
+      </div>
+
+      <!-- HEADER: Removed border-b and border-neutral-600 -->
+      <div id="header_grid" class="grid grid-cols-[1fr_6ch_6ch_5ch_24px] gap-1 mt-3 mb-1 px-3 pb-1">
+        <div class="pl-1 cursor-pointer" @click="sortBy('name')">
+          <p class="text-left text-white font-bold text-xs uppercase">Product</p>
+        </div>
+        <div class="cursor-pointer" @click="sortBy('was')">
+          <p class="text-center text-white font-bold text-xs uppercase">Was</p>
+        </div>
+        <div class="cursor-pointer" @click="sortBy('now')">
+          <p class="text-center text-white font-bold text-xs uppercase">Now</p>
+        </div>
+        <div class="cursor-pointer" @click="sortBy('percent')">
+          <p class="text-center text-white font-bold text-xs uppercase">%</p>
+        </div>
+        <div></div>
+      </div>
+
+      <!-- BODY GRID -->
+      <div id="body_grid" class="overflow-y-auto flex-1 px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <template x-for="(product, index) in products" :key="product.product_asin">
+          <div 
+            class="grid grid-cols-[1fr_6ch_6ch_5ch_24px] gap-1 items-center min-h-[44px] py-1 px-1 mb-0.5 rounded-lg hover:bg-neutral-600 transition-colors cursor-pointer group overflow-hidden"
+            :class="[getRowGradient(product), draggedIndex === index ? 'opacity-50' : '']"
+            @click="editingASIN === null && window.open(product.affiliate_link, '_blank')"
+            draggable="true"
+            @dragstart="onDragStart(index)"
+            @dragover="onDragOver($event, index)"
+            @dragend="onDragEnd()"
+          >
+            
+            <!-- NAME SLOT -->
+            <div class="pl-1 overflow-hidden">
+              <template x-if="editingASIN !== product.product_asin">
+                <div class="flex items-center gap-1 overflow-hidden">
+                  <p class="text-white text-sm leading-tight truncate" x-text="getDisplayName(product)" :title="getDisplayName(product)"></p>
+                  <button @click.stop="startEdit(product)" class="flex-shrink-0 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-white transition-opacity">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+                    </svg>
+                  </button>
+                </div>
+              </template>
+
+              <template x-if="editingASIN === product.product_asin">
+                <div class="flex items-center gap-1 w-full pr-1">
+                  <input
+                    type="text"
+                    x-model="editingName"
+                    @keydown.enter="saveEdit(product)"
+                    @click.stop
+                    @focus="$event.target.select()"
+                    class="flex-1 bg-neutral-800 text-white text-sm leading-5 px-1.5 py-0.5 rounded outline-none border border-[#81DD7D]"
+                    autofocus
+                  />
+                  <button @click.stop="saveEdit(product)" class="text-gray-400 hover:text-white flex-shrink-0">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                    </svg>
+                  </button>
+                  <button @click.stop="resetToOriginal(product)" class="text-gray-400 hover:text-white flex-shrink-0">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                    </svg>
+                  </button>
+                </div>
+              </template>
+            </div>
+
+            <!-- WAS -->
+            <div class="text-center">
+              <p class="text-white text-[13px] tabular-nums" x-text="formatPrice(product.product_original_price)"></p>
+            </div>
+
+            <!-- NOW -->
+            <div class="text-center">
+              <p class="text-white text-[13px] tabular-nums" x-text="formatPrice(product.product_price)"></p>
+            </div>
+
+            <!-- % badge -->
+            <div class="text-center">
+              <span 
+                x-text="calculateDiscount(product) ? calculateDiscount(product) + '%' : ''"
+                class="text-[13px] font-bold tabular-nums text-[#81DD7D]"
+                :class="!calculateDiscount(product) && 'invisible'"
+              ></span>
+            </div>
+
+            <!-- DELETE -->
+            <div class="flex justify-center">
+              <button @click.stop="remove_product(product)" class="text-neutral-400 hover:text-red-400 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

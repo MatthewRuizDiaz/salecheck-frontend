@@ -1,0 +1,20 @@
+{
+    "name": "SaleCheck",
+    "version": "1.0",
+    "manifest_version": 3,
+    "description": "This chrome extension indicates when an amazon product (US) is on sale.",
+    "icons": {
+        "48": "icon-48.png",
+        "128": "icon-128.png"
+    },
+    "action": {
+        "default_popup": "index.html"
+    },
+    "host_permissions": [
+        "https://salecheck-backend-production.up.railway.app/*"
+    ],
+    "permissions": [
+        "storage",
+        "tabs"
+    ]
+}
