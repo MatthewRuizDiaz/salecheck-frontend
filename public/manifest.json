@@ -16,8 +16,7 @@
     "permissions": [
         "storage",
         "tabs",
-        "alarms",
-        "action"
+        "alarms"
     ],
     "background": {
         "service_worker": "background.js"
