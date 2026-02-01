@@ -3,6 +3,11 @@ import Alpine from '@alpinejs/csp';
 
 const API_BASE = 'https://salecheck-backend-production.up.railway.app';
 
+// 1. Clear the "SALE" notification badge as soon as the user opens the extension
+if (chrome.action) {
+  chrome.action.setBadgeText({ text: "" });
+}
+
 chrome.storage.local.get('products', (result) => {
   const initialProducts = Array.isArray(result.products) ? result.products : [];
   initializeApp(initialProducts);
@@ -18,7 +23,6 @@ function initializeApp(initialProducts) {
     editingASIN: null,
     editingName: '',
     draggedIndex: null,
-    // [Deep Copy] Create a snapshot of the initial state for the sort-reset feature
     originalOrder: JSON.parse(JSON.stringify(initialProducts)),
     sortColumn: null,
     sortState: -1,
@@ -61,8 +65,8 @@ function initializeApp(initialProducts) {
     },
 
     add_product(product) {
-      if (this.products.length >= 10) {
-        this.errorMessage = 'Maximum capacity reached (10 items).';
+      if (this.products.length >= 5) {
+        this.errorMessage = 'Maximum capacity reached (5 items).';
         return;
       }
       if (!product.product_original_price) {
@@ -89,27 +93,24 @@ function initializeApp(initialProducts) {
       const toSave = Array.isArray(this.products)
         ? JSON.parse(JSON.stringify(this.products))
         : [];
-      // [Update Baseline] Update the originalOrder snapshot on manual data changes
       this.originalOrder = JSON.parse(JSON.stringify(toSave));
       chrome.storage.local.set({ products: toSave });
     },
 
     calculateDiscount(product) {
       if (!product.product_original_price || !product.product_price) return 0;
-      // [Regex Fix] Standardized numerical extraction
       const current = parseFloat(product.product_price.replace(/[$,]/g, ''));
       const original = parseFloat(
         product.product_original_price.replace(/[$,]/g, '')
       );
-      if (isNaN(current) || isNaN(original) || original <= current) return 0;
+      if (isNaN(current) || iNaN(original) || original <= current) return 0;
       return Math.round(((original - current) / original) * 100);
     },
 
     getRowGradient(product) {
       const discount = this.calculateDiscount(product);
-      if (!discount) return 'border-l-4 border-transparent'; // Keep alignment consistent
+      if (!discount) return 'border-l-4 border-transparent';
       
-      // Legend: [Tier Color] [Left Strip] [Subtle Fade]
       if (discount >= 55) return 'border-l-4 border-[#E5C05B] bg-gradient-to-r from-[#E5C05B]/10 to-transparent';
       if (discount >= 40) return 'border-l-4 border-[#B4B8BC] bg-gradient-to-r from-[#B4B8BC]/10 to-transparent';
       if (discount >= 20) return 'border-l-4 border-[#EEA064] bg-gradient-to-r from-[#EEA064]/10 to-transparent';
@@ -155,7 +156,6 @@ function initializeApp(initialProducts) {
 
     onDragEnd() {
       this.draggedIndex = null;
-      // [Sync Baseline] Manual drag becomes the new original baseline
       this.saveProducts();
     },
 
@@ -168,7 +168,6 @@ function initializeApp(initialProducts) {
     },
 
     sortBy(column) {
-      // [Cycle Limit] Determine if column cycles in 2 states or 3
       const cycleLimit = column === 'was' || column === 'now' ? 3 : 2;
 
       if (this.sortColumn !== column) {
@@ -178,7 +177,6 @@ function initializeApp(initialProducts) {
         this.sortState = (this.sortState + 1) % cycleLimit;
       }
 
-      // [Reset State] Restore the transient snapshot
       if (
         (cycleLimit === 2 && this.sortState === 1) ||
         (cycleLimit === 3 && this.sortState === 2)
@@ -193,41 +191,32 @@ function initializeApp(initialProducts) {
         if (column === 'name') {
           return this.getDisplayName(a).localeCompare(this.getDisplayName(b));
         }
-
         if (column === 'percent') {
           return this.calculateDiscount(b) - this.calculateDiscount(a);
         }
-
-        const priceA =
-          parseFloat(
-            (column === 'was'
-              ? a.product_original_price
-              : a.product_price
-            ).replace(/[$,]/g, '')
-          ) || 0;
-        const priceB =
-          parseFloat(
-            (column === 'was'
-              ? b.product_original_price
-              : b.product_price
-            ).replace(/[$,]/g, '')
-          ) || 0;
-
+        const priceA = parseFloat((column === 'was' ? a.product_original_price : a.product_price).replace(/[$,]/g, '')) || 0;
+        const priceB = parseFloat((column === 'was' ? b.product_original_price : b.product_price).replace(/[$,]/g, '')) || 0;
         return this.sortState === 0 ? priceA - priceB : priceB - priceA;
       });
     },
 
     init() {
+      // Listen for background updates while the popup is open
       chrome.storage.onChanged.addListener((changes, area) => {
         if (area === 'local' && changes.products) {
           const newProducts = changes.products.newValue || [];
+          
+          // Logic check: only update Alpine if the data is different from current state
           if (JSON.stringify(newProducts) !== JSON.stringify(this.products)) {
             this.products = [...newProducts];
             this.originalOrder = JSON.parse(JSON.stringify(newProducts));
+            // Reset sorting to avoid confusing the user with re-ordering items suddenly
+            this.sortColumn = null;
+            this.sortState = -1;
           }
         }
       });
-    },
+    }
   }));
 
   Alpine.start();
