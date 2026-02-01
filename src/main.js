@@ -99,11 +99,12 @@ function initializeApp(initialProducts) {
 
     calculateDiscount(product) {
       if (!product.product_original_price || !product.product_price) return 0;
-      const current = parseFloat(product.product_price.replace(/[$,]/g, ''));
-      const original = parseFloat(
-        product.product_original_price.replace(/[$,]/g, '')
-      );
-      if (isNaN(current) || iNaN(original) || original <= current) return 0;
+      
+      // Fixed: Aggressive regex to handle inconsistent currency formatting
+      const current = parseFloat(product.product_price.replace(/[^0-9.]/g, ''));
+      const original = parseFloat(product.product_original_price.replace(/[^0-9.]/g, ''));
+      
+      if (isNaN(current) || isNaN(original) || original <= current) return 0;
       return Math.round(((original - current) / original) * 100);
     },
 
@@ -160,7 +161,8 @@ function initializeApp(initialProducts) {
     },
 
     formatPrice(priceString) {
-      const price = parseFloat(priceString.replace(/[$,]/g, ''));
+      // Fixed: Use numbers-only regex for clean formatting
+      const price = parseFloat(priceString.replace(/[^0-9.]/g, ''));
       if (isNaN(price)) return priceString;
       if (price >= 1000) return '$' + Math.round(price);
       const rounded = price.toFixed(1);
@@ -194,29 +196,27 @@ function initializeApp(initialProducts) {
         if (column === 'percent') {
           return this.calculateDiscount(b) - this.calculateDiscount(a);
         }
-        const priceA = parseFloat((column === 'was' ? a.product_original_price : a.product_price).replace(/[$,]/g, '')) || 0;
-        const priceB = parseFloat((column === 'was' ? b.product_original_price : b.product_price).replace(/[$,]/g, '')) || 0;
+        
+        // Sorting also uses the clean regex for accuracy
+        const priceA = parseFloat((column === 'was' ? a.product_original_price : a.product_price).replace(/[^0-9.]/g, '')) || 0;
+        const priceB = parseFloat((column === 'was' ? b.product_original_price : b.product_price).replace(/[^0-9.]/g, '')) || 0;
         return this.sortState === 0 ? priceA - priceB : priceB - priceA;
       });
     },
 
     init() {
-      // Listen for background updates while the popup is open
       chrome.storage.onChanged.addListener((changes, area) => {
         if (area === 'local' && changes.products) {
           const newProducts = changes.products.newValue || [];
-          
-          // Logic check: only update Alpine if the data is different from current state
           if (JSON.stringify(newProducts) !== JSON.stringify(this.products)) {
             this.products = [...newProducts];
             this.originalOrder = JSON.parse(JSON.stringify(newProducts));
-            // Reset sorting to avoid confusing the user with re-ordering items suddenly
             this.sortColumn = null;
             this.sortState = -1;
           }
         }
       });
-    }
+    },
   }));
 
   Alpine.start();
