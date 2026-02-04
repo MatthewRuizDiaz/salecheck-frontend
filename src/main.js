@@ -69,14 +69,20 @@ function initializeApp(initialProducts) {
         this.errorMessage = 'Maximum capacity reached (5 items).';
         return;
       }
-      if (!product.product_original_price) {
-        this.errorMessage = 'Price comparison data unavailable.';
+      
+      // Updated: We no longer reject if original_price is missing, 
+      // because the backend handles the fallback now. 
+      // We only reject if BOTH are missing (result is "0.00").
+      if (product.product_price === "0.00") {
+        this.errorMessage = 'Price data unavailable for this product.';
         return;
       }
+
       if (this.products.some((p) => p.product_asin === product.product_asin)) {
         this.errorMessage = 'This product is already in the list.';
         return;
       }
+      
       this.products.push(product);
       this.saveProducts();
       this.errorMessage = '';

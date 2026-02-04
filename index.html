@@ -21,6 +21,10 @@
         </button>
       </div>
 
+      <!-- ERROR: Error message for telling users why they couldn't track a product -->
+      <div x-show="errorMessage" x-text="errorMessage" class="mx-3 mt-2 text-red-400 text-xs font-bold bg-red-900/20 p-2 rounded">
+      </div>
+      
       <!-- HEADER: Removed border-b and border-neutral-600 -->
       <div id="header_grid" class="grid grid-cols-[1fr_6ch_6ch_5ch_24px] gap-1 mt-3 mb-1 px-3 pb-1">
         <div class="pl-1 cursor-pointer" @click="sortBy('name')">
