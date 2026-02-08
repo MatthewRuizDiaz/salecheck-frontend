@@ -26,6 +26,7 @@ function initializeApp(initialProducts) {
     originalOrder: JSON.parse(JSON.stringify(initialProducts)),
     sortColumn: null,
     sortState: -1,
+    hoverTimeout: null, // Timer for the 700ms dwell interaction
 
     async trackCurrentProduct() {
       this.loading = true;
@@ -70,9 +71,6 @@ function initializeApp(initialProducts) {
         return;
       }
       
-      // Updated: We no longer reject if original_price is missing, 
-      // because the backend handles the fallback now. 
-      // We only reject if BOTH are missing (result is "0.00").
       if (product.product_price === "0.00") {
         this.errorMessage = 'Price data unavailable for this product.';
         return;
@@ -103,10 +101,26 @@ function initializeApp(initialProducts) {
       chrome.storage.local.set({ products: toSave });
     },
 
+    // Timer logic to clear the "New Sale" dot after dwelling for 700ms
+    handleHover(product) {
+      if (!product.isNewSale) return;
+      
+      this.hoverTimeout = setTimeout(() => {
+        product.isNewSale = false;
+        this.saveProducts();
+      }, 700);
+    },
+
+    clearHover() {
+      if (this.hoverTimeout) {
+        clearTimeout(this.hoverTimeout);
+        this.hoverTimeout = null;
+      }
+    },
+
     calculateDiscount(product) {
       if (!product.product_original_price || !product.product_price) return 0;
       
-      // Fixed: Aggressive regex to handle inconsistent currency formatting
       const current = parseFloat(product.product_price.replace(/[^0-9.]/g, ''));
       const original = parseFloat(product.product_original_price.replace(/[^0-9.]/g, ''));
       
@@ -167,7 +181,6 @@ function initializeApp(initialProducts) {
     },
 
     formatPrice(priceString) {
-      // Fixed: Use numbers-only regex for clean formatting
       const price = parseFloat(priceString.replace(/[^0-9.]/g, ''));
       if (isNaN(price)) return priceString;
       if (price >= 1000) return '$' + Math.round(price);
@@ -203,7 +216,6 @@ function initializeApp(initialProducts) {
           return this.calculateDiscount(b) - this.calculateDiscount(a);
         }
         
-        // Sorting also uses the clean regex for accuracy
         const priceA = parseFloat((column === 'was' ? a.product_original_price : a.product_price).replace(/[^0-9.]/g, '')) || 0;
         const priceB = parseFloat((column === 'was' ? b.product_original_price : b.product_price).replace(/[^0-9.]/g, '')) || 0;
         return this.sortState === 0 ? priceA - priceB : priceB - priceA;

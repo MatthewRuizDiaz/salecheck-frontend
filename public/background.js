@@ -72,16 +72,18 @@ async function refreshAllPrices() {
       if (!fresh) return oldProduct;
 
       // Convert strings (e.g., "$19.99") to numbers for comparison
-      const oldPriceNum = parseFloat(
-        oldProduct.product_price.replace(/[^0-9.]/g, "")
-      );
-      const newPriceNum = parseFloat(
-        fresh.product_price.replace(/[^0-9.]/g, "")
-      );
+      // Safety: fallback to empty string to avoid null replace error
+      const oldPriceStr = oldProduct.product_price || "";
+      const newPriceStr = fresh.product_price || "";
+      
+      const oldPriceNum = parseFloat(oldPriceStr.replace(/[^0-9.]/g, ""));
+      const newPriceNum = parseFloat(newPriceStr.replace(/[^0-9.]/g, ""));
 
       // Check if price is lower than what we had in storage
-      if (newPriceNum < oldPriceNum) {
+      let isNewSale = oldProduct.isNewSale || false;
+      if (newPriceNum > 0 && oldPriceNum > 0 && newPriceNum < oldPriceNum) {
         priceDropCount++;
+        isNewSale = true; // Mark as unread for the frontend
       }
 
       return {
@@ -89,6 +91,7 @@ async function refreshAllPrices() {
         product_price: fresh.product_price,
         product_original_price:
           fresh.product_original_price || oldProduct.product_original_price,
+        isNewSale: isNewSale
       };
     });
 
