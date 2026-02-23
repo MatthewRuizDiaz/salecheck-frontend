@@ -3,7 +3,6 @@ import Alpine from '@alpinejs/csp';
 
 const API_BASE = 'https://salecheck-backend-production.up.railway.app';
 
-// 1. Clear the "SALE" notification badge as soon as the user opens the extension
 if (chrome.action) {
   chrome.action.setBadgeText({ text: "" });
 }
@@ -19,6 +18,7 @@ function initializeApp(initialProducts) {
   Alpine.data('product_list', () => ({
     products: [...initialProducts],
     loading: false,
+    isRefreshing: false, // For the throbber
     errorMessage: '',
     editingASIN: null,
     editingName: '',
@@ -26,7 +26,7 @@ function initializeApp(initialProducts) {
     originalOrder: JSON.parse(JSON.stringify(initialProducts)),
     sortColumn: null,
     sortState: -1,
-    hoverTimeout: null, // Timer for the 700ms dwell interaction
+    hoverTimeout: null,
 
     async trackCurrentProduct() {
       this.loading = true;
@@ -38,23 +38,13 @@ function initializeApp(initialProducts) {
         });
         if (!tab || !tab.url) throw new Error('Could not access current tab');
 
-        const url = tab.url;
-        if (!url.includes('amazon.com')) {
-          throw new Error('Please navigate to an Amazon product page');
-        }
-        if (!url.includes('/dp/') && !url.includes('/gp/product/')) {
-          throw new Error("This doesn't appear to be a product page");
-        }
-
-        const encoded = encodeURIComponent(url);
-        const response = await fetch(
-          `${API_BASE}/products/by_url?url=${encoded}`
-        );
+        const encoded = encodeURIComponent(tab.url);
+        const response = await fetch(`${API_BASE}/products/by_url?url=${encoded}`);
 
         if (!response.ok) throw new Error('Could not fetch product data');
 
         const product = await response.json();
-        product.original_title = product.product_title;
+        product.original_title = product.title;
         product.custom_title = null;
 
         this.add_product(product);
@@ -70,26 +60,21 @@ function initializeApp(initialProducts) {
         this.errorMessage = 'Maximum capacity reached (5 items).';
         return;
       }
-      
-      if (product.product_price === "0.00") {
+      if (product.current_price === "0.00") {
         this.errorMessage = 'Price data unavailable for this product.';
         return;
       }
-
-      if (this.products.some((p) => p.product_asin === product.product_asin)) {
+      if (this.products.some((p) => p.asin === product.asin)) {
         this.errorMessage = 'This product is already in the list.';
         return;
       }
-      
       this.products.push(product);
       this.saveProducts();
       this.errorMessage = '';
     },
 
     remove_product(product) {
-      this.products = this.products.filter(
-        (p) => p.product_asin !== product.product_asin
-      );
+      this.products = this.products.filter((p) => p.asin !== product.asin);
       this.saveProducts();
     },
 
@@ -101,10 +86,21 @@ function initializeApp(initialProducts) {
       chrome.storage.local.set({ products: toSave });
     },
 
-    // Timer logic to clear the "New Sale" dot after dwelling for 700ms
+    openLink(event, url) {
+      if (this.editingASIN !== null) return;
+
+      // event.button 0 = Left click, 1 = Middle click
+      if (event.button === 0) {
+        // Left click: Open and switch to tab
+        chrome.tabs.create({ url, active: true });
+      } else if (event.button === 1) {
+        // Middle click: Open in background and stay in extension
+        chrome.tabs.create({ url, active: false });
+      }
+    },
+
     handleHover(product) {
       if (!product.isNewSale) return;
-      
       this.hoverTimeout = setTimeout(() => {
         product.isNewSale = false;
         this.saveProducts();
@@ -119,11 +115,9 @@ function initializeApp(initialProducts) {
     },
 
     calculateDiscount(product) {
-      if (!product.product_original_price || !product.product_price) return 0;
-      
-      const current = parseFloat(product.product_price.replace(/[^0-9.]/g, ''));
-      const original = parseFloat(product.product_original_price.replace(/[^0-9.]/g, ''));
-      
+      if (!product.standard_price || !product.current_price) return 0;
+      const current = parseFloat(product.current_price.replace(/[^0-9.]/g, ''));
+      const original = parseFloat(product.standard_price.replace(/[^0-9.]/g, ''));
       if (isNaN(current) || isNaN(original) || original <= current) return 0;
       return Math.round(((original - current) / original) * 100);
     },
@@ -131,17 +125,15 @@ function initializeApp(initialProducts) {
     getRowGradient(product) {
       const discount = this.calculateDiscount(product);
       if (!discount) return 'border-l-4 border-transparent';
-      
       if (discount >= 55) return 'border-l-4 border-[#E5C05B] bg-gradient-to-r from-[#E5C05B]/10 to-transparent';
       if (discount >= 40) return 'border-l-4 border-[#B4B8BC] bg-gradient-to-r from-[#B4B8BC]/10 to-transparent';
       if (discount >= 20) return 'border-l-4 border-[#EEA064] bg-gradient-to-r from-[#EEA064]/10 to-transparent';
-      
       return 'border-l-4 border-transparent';
     },
 
     startEdit(product) {
-      this.editingASIN = product.product_asin;
-      this.editingName = product.custom_title || product.product_title;
+      this.editingASIN = product.asin;
+      this.editingName = product.custom_title || product.title;
     },
 
     saveEdit(product) {
@@ -158,14 +150,8 @@ function initializeApp(initialProducts) {
       this.editingASIN = null;
     },
 
-    getDisplayName(product) {
-      return product.custom_title || product.product_title;
-    },
-
-    onDragStart(index) {
-      this.draggedIndex = index;
-    },
-
+    getDisplayName(product) { return product.custom_title || product.title; },
+    onDragStart(index) { this.draggedIndex = index; },
     onDragOver(event, index) {
       event.preventDefault();
       if (this.draggedIndex === null || this.draggedIndex === index) return;
@@ -174,55 +160,47 @@ function initializeApp(initialProducts) {
       this.products.splice(index, 0, draggedItem);
       this.draggedIndex = index;
     },
-
-    onDragEnd() {
-      this.draggedIndex = null;
-      this.saveProducts();
-    },
-
-    formatPrice(priceString) {
-      const price = parseFloat(priceString.replace(/[^0-9.]/g, ''));
-      if (isNaN(price)) return priceString;
-      if (price >= 1000) return '$' + Math.round(price);
-      const rounded = price.toFixed(1);
-      return rounded.endsWith('.0') ? '$' + rounded.slice(0, -2) : '$' + rounded;
-    },
+    onDragEnd() { this.draggedIndex = null; this.saveProducts(); },
 
     sortBy(column) {
       const cycleLimit = column === 'was' || column === 'now' ? 3 : 2;
-
       if (this.sortColumn !== column) {
         this.sortColumn = column;
         this.sortState = 0;
       } else {
         this.sortState = (this.sortState + 1) % cycleLimit;
       }
-
-      if (
-        (cycleLimit === 2 && this.sortState === 1) ||
-        (cycleLimit === 3 && this.sortState === 2)
-      ) {
+      if ((cycleLimit === 2 && this.sortState === 1) || (cycleLimit === 3 && this.sortState === 2)) {
         this.products = JSON.parse(JSON.stringify(this.originalOrder));
         this.sortColumn = null;
         this.sortState = -1;
         return;
       }
-
       this.products.sort((a, b) => {
-        if (column === 'name') {
-          return this.getDisplayName(a).localeCompare(this.getDisplayName(b));
-        }
-        if (column === 'percent') {
-          return this.calculateDiscount(b) - this.calculateDiscount(a);
-        }
-        
-        const priceA = parseFloat((column === 'was' ? a.product_original_price : a.product_price).replace(/[^0-9.]/g, '')) || 0;
-        const priceB = parseFloat((column === 'was' ? b.product_original_price : b.product_price).replace(/[^0-9.]/g, '')) || 0;
+        if (column === 'name') return this.getDisplayName(a).localeCompare(this.getDisplayName(b));
+        if (column === 'percent') return this.calculateDiscount(b) - this.calculateDiscount(a);
+        const priceA = parseFloat((column === 'was' ? a.standard_price : a.current_price).replace(/[^0-9.]/g, '')) || 0;
+        const priceB = parseFloat((column === 'was' ? b.standard_price : b.current_price).replace(/[^0-9.]/g, '')) || 0;
         return this.sortState === 0 ? priceA - priceB : priceB - priceA;
       });
     },
 
     init() {
+      // 1. Check if background is already working when we open
+      chrome.runtime.sendMessage({ action: "getRefreshStatus" }, (response) => {
+        if (response && response.isRefreshing) this.isRefreshing = true;
+      });
+
+      // 2. Listen for real-time status updates
+      chrome.runtime.onMessage.addListener((message) => {
+        if (message.action === "refreshStarted") this.isRefreshing = true;
+        if (message.action === "refreshFinished") {
+          this.isRefreshing = false;
+          chrome.action.setBadgeText({ text: "" }); // User is looking, clear the badge
+        }
+      });
+
+      // 3. Sync data changes instantly
       chrome.storage.onChanged.addListener((changes, area) => {
         if (area === 'local' && changes.products) {
           const newProducts = changes.products.newValue || [];
