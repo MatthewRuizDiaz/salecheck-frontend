@@ -7,64 +7,79 @@ const SALE_THRESHOLD = 0.02; // 2% minimum drop to trigger a notification
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "getRefreshStatus") {
     sendResponse({ isRefreshing });
+    return;
   }
 
   if (request.action === "trackCurrentTab") {
-    handleManualTrack();
-    return true;
+    handleManualTrack()
+      .then((result) => sendResponse(result))
+      .catch((error) =>
+        sendResponse({ success: false, message: error.message })
+      );
+
+    return true; // ✅ We are responding asynchronously
   }
 });
 
+// ✅ Fully structured manual track handler
 async function handleManualTrack() {
-  try {
-    const [tab] = await chrome.tabs.query({
-      active: true,
-      currentWindow: true,
-    });
-    if (!tab || !tab.url) return;
+  const [tab] = await chrome.tabs.query({
+    active: true,
+    currentWindow: true,
+  });
 
-    const { products = [] } = await chrome.storage.local.get("products");
-
-    // Increased capacity to 10
-    if (products.length >= 10) return;
-
-    const encoded = encodeURIComponent(tab.url);
-    const response = await fetch(
-      `https://salecheck-backend-production.up.railway.app/products/by_url?url=${encoded}`
-    );
-
-    if (!response.ok) {
-      // Try to get specific error from backend JSON, else fallback to generic
-      let errorMsg = "Service Unreachable";
-      try {
-        const errorData = await response.json();
-        if (errorData.error) errorMsg = errorData.error;
-      } catch (e) {
-        // Response wasn't JSON or body was empty
-      }
-      throw new Error(errorMsg);
-    }
-
-    const product = await response.json();
-
-    if (product.current_price === "0.00") return;
-    if (products.some((p) => p.asin === product.asin)) return;
-
-    product.original_title = product.title;
-    product.custom_title = null;
-    product.isNewSale = false;
-
-    const updatedProducts = [...products, product];
-    await chrome.storage.local.set({ products: updatedProducts });
-  } catch (error) {
-    // Send the error message to the frontend UI
-    chrome.runtime
-      .sendMessage({
-        action: "trackError",
-        message: error.message,
-      })
-      .catch(() => {}); // Catch error if popup is closed
+  if (!tab || !tab.url) {
+    return { success: false, message: "No active tab found" };
   }
+
+  const { products = [] } = await chrome.storage.local.get("products");
+
+  if (products.length >= 10) {
+    return {
+      success: false,
+      message: "Maximum capacity reached (10 items).",
+    };
+  }
+
+  const encoded = encodeURIComponent(tab.url);
+  const response = await fetch(
+    `https://salecheck-backend-production.up.railway.app/products/by_url?url=${encoded}`
+  );
+
+  if (!response.ok) {
+    let errorMsg = "Service Unreachable";
+    try {
+      const errorData = await response.json();
+      if (errorData.error) errorMsg = errorData.error;
+    } catch (e) {}
+    return { success: false, message: errorMsg };
+  }
+
+  const product = await response.json();
+
+  if (!product || !product.asin) {
+    return { success: false, message: "Product not found" };
+  }
+
+  if (product.current_price === "0.00") {
+    return { success: false, message: "Product has no active price" };
+  }
+
+  if (products.some((p) => p.asin === product.asin)) {
+    return {
+      success: false,
+      message: "Product already being tracked",
+    };
+  }
+
+  product.original_title = product.title;
+  product.custom_title = null;
+  product.isNewSale = false;
+
+  const updatedProducts = [...products, product];
+  await chrome.storage.local.set({ products: updatedProducts });
+
+  return { success: true };
 }
 
 // 2. SETUP ALARM ON INSTALL
