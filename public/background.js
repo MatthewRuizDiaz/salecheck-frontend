@@ -1,20 +1,77 @@
 // background.js
 
 let isRefreshing = false;
+const SALE_THRESHOLD = 0.02; // 2% minimum drop to trigger a notification
 
-// 1. Listen for status pings from the popup
+// 1. Listen for messages from the popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "getRefreshStatus") {
     sendResponse({ isRefreshing });
   }
+
+  if (request.action === "trackCurrentTab") {
+    handleManualTrack();
+    return true;
+  }
 });
+
+async function handleManualTrack() {
+  try {
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      currentWindow: true,
+    });
+    if (!tab || !tab.url) return;
+
+    const { products = [] } = await chrome.storage.local.get("products");
+
+    // Increased capacity to 10
+    if (products.length >= 10) return;
+
+    const encoded = encodeURIComponent(tab.url);
+    const response = await fetch(
+      `https://salecheck-backend-production.up.railway.app/products/by_url?url=${encoded}`
+    );
+
+    if (!response.ok) {
+      // Try to get specific error from backend JSON, else fallback to generic
+      let errorMsg = "Service Unreachable";
+      try {
+        const errorData = await response.json();
+        if (errorData.error) errorMsg = errorData.error;
+      } catch (e) {
+        // Response wasn't JSON or body was empty
+      }
+      throw new Error(errorMsg);
+    }
+
+    const product = await response.json();
+
+    if (product.current_price === "0.00") return;
+    if (products.some((p) => p.asin === product.asin)) return;
+
+    product.original_title = product.title;
+    product.custom_title = null;
+    product.isNewSale = false;
+
+    const updatedProducts = [...products, product];
+    await chrome.storage.local.set({ products: updatedProducts });
+  } catch (error) {
+    // Send the error message to the frontend UI
+    chrome.runtime
+      .sendMessage({
+        action: "trackError",
+        message: error.message,
+      })
+      .catch(() => {}); // Catch error if popup is closed
+  }
+}
 
 // 2. SETUP ALARM ON INSTALL
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create("dailyPriceCheck", {
     periodInMinutes: 1440, // 24 hours
   });
-  console.log("SaleCheck: Daily alarm scheduled.");
 });
 
 // 3. LISTENERS
@@ -43,7 +100,6 @@ async function refreshAllPrices() {
   if (lastUpdate && now - lastUpdate < oneDayInMs) return;
 
   isRefreshing = true;
-  // Notify any open popup that we started
   chrome.runtime.sendMessage({ action: "refreshStarted" }).catch(() => {});
 
   try {
@@ -70,17 +126,25 @@ async function refreshAllPrices() {
 
       if (!fresh) return oldProduct;
 
-      const oldCurNum = parseFloat((oldProduct.current_price || "0").replace(/[^0-9.]/g, ""));
-      const newCurNum = parseFloat((fresh.current_price || "0").replace(/[^0-9.]/g, ""));
-      const oldStdNum = parseFloat((oldProduct.standard_price || "0").replace(/[^0-9.]/g, ""));
-      const newStdNum = parseFloat((fresh.standard_price || "0").replace(/[^0-9.]/g, ""));
+      const oldCurNum = parseFloat(
+        (oldProduct.current_price || "0").replace(/[^0-9.]/g, "")
+      );
+      const newCurNum = parseFloat(
+        (fresh.current_price || "0").replace(/[^0-9.]/g, "")
+      );
+      const oldStdNum = parseFloat(
+        (oldProduct.standard_price || "0").replace(/[^0-9.]/g, "")
+      );
+      const newStdNum = parseFloat(
+        (fresh.standard_price || "0").replace(/[^0-9.]/g, "")
+      );
 
       const currentChanged = newCurNum !== oldCurNum;
       const standardChanged = newStdNum !== oldStdNum;
 
       if (currentChanged && standardChanged) return oldProduct;
 
-      let updatedStandardPrice = oldProduct.standard_price || oldProduct.product_original_price;
+      let updatedStandardPrice = oldProduct.standard_price;
       let msrpChangeCount = oldProduct.msrpChangeCount || 0;
 
       if (standardChanged) {
@@ -94,9 +158,13 @@ async function refreshAllPrices() {
       }
 
       let isNewSale = oldProduct.isNewSale || false;
+
       if (newCurNum > 0 && oldCurNum > 0 && newCurNum < oldCurNum) {
-        priceDropCount++;
-        isNewSale = true;
+        const dropPercent = (oldCurNum - newCurNum) / oldCurNum;
+        if (dropPercent >= SALE_THRESHOLD) {
+          priceDropCount++;
+          isNewSale = true;
+        }
       }
 
       return {
@@ -105,9 +173,8 @@ async function refreshAllPrices() {
         title: fresh.title,
         current_price: fresh.current_price,
         standard_price: updatedStandardPrice,
-        affiliate_link: fresh.affiliate_link,
         isNewSale: isNewSale,
-        msrpChangeCount: msrpChangeCount
+        msrpChangeCount: msrpChangeCount,
       };
     });
 
@@ -121,10 +188,9 @@ async function refreshAllPrices() {
       chrome.action.setBadgeBackgroundColor({ color: "#FF3B30" });
     }
   } catch (error) {
-    console.error("SaleCheck: Update error:", error);
+    // Silence error for production
   } finally {
     isRefreshing = false;
-    // Notify popup we are done
     chrome.runtime.sendMessage({ action: "refreshFinished" }).catch(() => {});
   }
 }
