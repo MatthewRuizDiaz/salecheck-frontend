@@ -28,6 +28,12 @@ async function handleManualTrack() {
     // Increased capacity to 10
     if (products.length >= 10) return;
 
+    // Pre-check: extract ASIN from URL and check storage before calling the API
+    const asinMatch = tab.url.match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})/i);
+    if (asinMatch && products.some((p) => p.asin === asinMatch[1])) {
+      throw new Error("Product already tracked");
+    }
+
     const encoded = encodeURIComponent(tab.url);
     const response = await fetch(
       `https://salecheck-backend-production.up.railway.app/products/by_url?url=${encoded}`
@@ -48,7 +54,9 @@ async function handleManualTrack() {
     const product = await response.json();
 
     if (product.current_price === "0.00") return;
-    if (products.some((p) => p.asin === product.asin)) return;
+    if (products.some((p) => p.asin === product.asin)) {
+      throw new Error("Product already tracked");
+    }
 
     product.original_title = product.title;
     product.custom_title = null;

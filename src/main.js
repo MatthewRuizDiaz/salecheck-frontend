@@ -16,7 +16,10 @@ function initializeApp(initialProducts) {
   window.Alpine = Alpine;
 
   Alpine.data('product_list', () => ({
-    products: [...initialProducts],
+    products: initialProducts.map(p => ({
+      ...p,
+      affiliate_link: `https://www.amazon.com/dp/${p.asin}?tag=${AFFILIATE_TAG}`
+    })),
     loading: false,
     isRefreshing: false,
     errorMessage: '',
@@ -199,7 +202,10 @@ function initializeApp(initialProducts) {
         if (area === 'local' && changes.products) {
           const newProducts = changes.products.newValue || [];
           if (JSON.stringify(newProducts) !== JSON.stringify(this.products)) {
-            this.products = [...newProducts];
+            this.products = newProducts.map(p => ({
+              ...p,
+              affiliate_link: `https://www.amazon.com/dp/${p.asin}?tag=${AFFILIATE_TAG}`
+            }));
             this.originalOrder = JSON.parse(JSON.stringify(newProducts));
             this.sortColumn = null;
             this.sortState = -1;
