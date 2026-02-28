@@ -15,18 +15,21 @@ chrome.storage.local.get('products', (result) => {
 function initializeApp(initialProducts) {
   window.Alpine = Alpine;
 
-  Alpine.data('product_list', () => ({
-    products: initialProducts.map(p => ({
+  Alpine.data('product_list', () => {
+    const withLinks = initialProducts.map(p => ({
       ...p,
       affiliate_link: `https://www.amazon.com/dp/${p.asin}?tag=${AFFILIATE_TAG}`
-    })),
+    }));
+
+    return {
+    products: [...withLinks],
     loading: false,
     isRefreshing: false,
     errorMessage: '',
     editingASIN: null,
     editingName: '',
     draggedIndex: null,
-    originalOrder: JSON.parse(JSON.stringify(initialProducts)),
+    originalOrder: JSON.parse(JSON.stringify(withLinks)),
     sortColumn: null,
     sortState: -1,
     hoverTimeout: null,
@@ -86,8 +89,17 @@ function initializeApp(initialProducts) {
       this.sortState = -1;
     },
 
+    closeEdit() {
+      if (this.editingASIN === null) return;
+      const product = this.products.find(p => p.asin === this.editingASIN);
+      if (product) this.saveEdit(product);
+    },
+
     openLink(event, url) {
-      if (this.editingASIN !== null) return;
+      if (this.editingASIN !== null) {
+        this.closeEdit();
+        return;
+      }
       if (event.button === 0) {
         chrome.tabs.create({ url, active: true });
       } else if (event.button === 1) {
@@ -202,11 +214,12 @@ function initializeApp(initialProducts) {
         if (area === 'local' && changes.products) {
           const newProducts = changes.products.newValue || [];
           if (JSON.stringify(newProducts) !== JSON.stringify(this.products)) {
-            this.products = newProducts.map(p => ({
+            const mapped = newProducts.map(p => ({
               ...p,
               affiliate_link: `https://www.amazon.com/dp/${p.asin}?tag=${AFFILIATE_TAG}`
             }));
-            this.originalOrder = JSON.parse(JSON.stringify(newProducts));
+            this.products = mapped;
+            this.originalOrder = JSON.parse(JSON.stringify(mapped));
             this.sortColumn = null;
             this.sortState = -1;
             this.loading = false; 
@@ -215,7 +228,8 @@ function initializeApp(initialProducts) {
         }
       });
     },
-  }));
+  };
+  });
 
   Alpine.start();
 }

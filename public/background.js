@@ -53,7 +53,9 @@ async function handleManualTrack() {
 
     const product = await response.json();
 
-    if (product.current_price === "0.00") return;
+    if (product.current_price === "0.00") {
+      throw new Error("Product unavailable");
+    }
     if (products.some((p) => p.asin === product.asin)) {
       throw new Error("Product already tracked");
     }

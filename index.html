@@ -16,8 +16,8 @@
   </head>
   <body>
     <!-- Main Container Fixed at 480px -->
-    <div id="app" class="w-[480px] h-[500px] bg-neutral-700 flex flex-col overflow-hidden font-['Inter'] relative" x-data="product_list()">
-      
+    <div id="app" class="w-[480px] h-[500px] bg-neutral-700 flex flex-col overflow-hidden font-['Inter'] relative" x-data="product_list()" @click="closeEdit()">
+
       <!-- Action Bar -->
       <div class="flex-shrink-0 px-3 mt-2 flex gap-2">
         <button 
