@@ -8,9 +8,7 @@ if (chrome.action) {
 }
 
 chrome.storage.local.get('products', (result) => {
-  const initialProducts = Array.isArray(result.products)
-    ? result.products
-    : [];
+  const initialProducts = Array.isArray(result.products) ? result.products : [];
   initializeApp(initialProducts);
 });
 
@@ -36,68 +34,42 @@ function initializeApp(initialProducts) {
         return;
       }
 
-      if (this.loading) return; // ✅ Prevent double clicks
-
       this.loading = true;
       this.errorMessage = '';
-
-      chrome.runtime.sendMessage(
-        { action: "trackCurrentTab" },
-        (response) => {
-          // ✅ Always stop loading
-          this.loading = false;
-
-          // ✅ Handle extension-level failure
-          if (chrome.runtime.lastError) {
-            this.errorMessage = "Extension error. Please try again.";
-            return;
-          }
-
-          if (!response) {
-            this.errorMessage = "Unexpected error. Please try again.";
-            return;
-          }
-
-          if (!response.success) {
-            this.errorMessage = response.message;
-            return;
-          }
-
-          // ✅ Success case — storage listener will update UI
-          this.errorMessage = '';
-        }
-      );
+      
+      chrome.runtime.sendMessage({ action: "trackCurrentTab" });
     },
 
     exportLinks() {
       if (this.products.length === 0) return;
 
-      const content = this.products
-        .map((p) => p.affiliate_link)
-        .join('\n');
+      // 1. Extract only the pre-constructed affiliate links
+      const content = this.products.map((p) => p.affiliate_link).join('\n');
 
+      // 2. Create the file blob
       const blob = new Blob([content], { type: 'text/plain' });
       const url = URL.createObjectURL(blob);
 
+      // 3. Trigger silent download
       const link = document.createElement('a');
       link.href = url;
       link.download = 'salecheck-backup.txt';
       link.click();
 
+      // 4. Cleanup memory
       URL.revokeObjectURL(url);
     },
 
     remove_product(product) {
-      this.products = this.products.filter(
-        (p) => p.asin !== product.asin
-      );
+      this.products = this.products.filter((p) => p.asin !== product.asin);
       this.saveProducts();
     },
 
     saveProducts() {
-      const toSave = this.products.map((p) => ({
+      // Construction Logic: Ensure every product has the correct link before saving
+      const toSave = this.products.map(p => ({
         ...p,
-        affiliate_link: `https://www.amazon.com/dp/${p.asin}?tag=${AFFILIATE_TAG}`,
+        affiliate_link: `https://www.amazon.com/dp/${p.asin}?tag=${AFFILIATE_TAG}`
       }));
 
       this.originalOrder = JSON.parse(JSON.stringify(toSave));
@@ -113,7 +85,6 @@ function initializeApp(initialProducts) {
 
     openLink(event, url) {
       if (this.editingASIN !== null) return;
-
       if (event.button === 0) {
         chrome.tabs.create({ url, active: true });
       } else if (event.button === 1) {
@@ -123,7 +94,6 @@ function initializeApp(initialProducts) {
 
     handleHover(product) {
       if (!product.isNewSale) return;
-
       this.hoverTimeout = setTimeout(() => {
         product.isNewSale = false;
         this.saveProducts();
@@ -138,56 +108,30 @@ function initializeApp(initialProducts) {
     },
 
     calculateDiscount(product) {
-      if (!product.standard_price || !product.current_price)
-        return 0;
-
-      const current = parseFloat(
-        product.current_price.replace(/[^0-9.]/g, '')
-      );
-      const original = parseFloat(
-        product.standard_price.replace(/[^0-9.]/g, '')
-      );
-
-      if (
-        isNaN(current) ||
-        isNaN(original) ||
-        original <= current
-      )
-        return 0;
-
-      return Math.round(
-        ((original - current) / original) * 100
-      );
+      if (!product.standard_price || !product.current_price) return 0;
+      const current = parseFloat(product.current_price.replace(/[^0-9.]/g, ''));
+      const original = parseFloat(product.standard_price.replace(/[^0-9.]/g, ''));
+      if (isNaN(current) || isNaN(original) || original <= current) return 0;
+      return Math.round(((original - current) / original) * 100);
     },
 
     getRowGradient(product) {
       const discount = this.calculateDiscount(product);
-
-      if (!discount)
-        return 'border-l-4 border-transparent';
-
-      if (discount >= 55)
-        return 'border-l-4 border-[#E5C05B] bg-gradient-to-r from-[#E5C05B]/10 to-transparent';
-
-      if (discount >= 40)
-        return 'border-l-4 border-[#B4B8BC] bg-gradient-to-r from-[#B4B8BC]/10 to-transparent';
-
-      if (discount >= 20)
-        return 'border-l-4 border-[#EEA064] bg-gradient-to-r from-[#EEA064]/10 to-transparent';
-
+      if (!discount) return 'border-l-4 border-transparent';
+      if (discount >= 55) return 'border-l-4 border-[#E5C05B] bg-gradient-to-r from-[#E5C05B]/10 to-transparent';
+      if (discount >= 40) return 'border-l-4 border-[#B4B8BC] bg-gradient-to-r from-[#B4B8BC]/10 to-transparent';
+      if (discount >= 20) return 'border-l-4 border-[#EEA064] bg-gradient-to-r from-[#EEA064]/10 to-transparent';
       return 'border-l-4 border-transparent';
     },
 
     startEdit(product) {
       this.editingASIN = product.asin;
-      this.editingName =
-        product.custom_title || product.title;
+      this.editingName = product.custom_title || product.title;
     },
 
     saveEdit(product) {
       if (this.editingName.trim()) {
-        product.custom_title =
-          this.editingName.trim();
+        product.custom_title = this.editingName.trim();
         this.saveProducts();
       }
       this.editingASIN = null;
@@ -199,142 +143,71 @@ function initializeApp(initialProducts) {
       this.editingASIN = null;
     },
 
-    getDisplayName(product) {
-      return product.custom_title || product.title;
-    },
-
-    onDragStart(index) {
-      this.draggedIndex = index;
-    },
-
+    getDisplayName(product) { return product.custom_title || product.title; },
+    onDragStart(index) { this.draggedIndex = index; },
     onDragOver(event, index) {
       event.preventDefault();
-      if (
-        this.draggedIndex === null ||
-        this.draggedIndex === index
-      )
-        return;
-
-      const draggedItem =
-        this.products[this.draggedIndex];
+      if (this.draggedIndex === null || this.draggedIndex === index) return;
+      const draggedItem = this.products[this.draggedIndex];
       this.products.splice(this.draggedIndex, 1);
       this.products.splice(index, 0, draggedItem);
       this.draggedIndex = index;
     },
-
-    onDragEnd() {
-      this.draggedIndex = null;
-      this.saveProducts();
-    },
+    onDragEnd() { this.draggedIndex = null; this.saveProducts(); },
 
     sortBy(column) {
-      const cycleLimit =
-        column === 'was' || column === 'now'
-          ? 3
-          : 2;
-
+      const cycleLimit = column === 'was' || column === 'now' ? 3 : 2;
       if (this.sortColumn !== column) {
         this.sortColumn = column;
         this.sortState = 0;
       } else {
-        this.sortState =
-          (this.sortState + 1) % cycleLimit;
+        this.sortState = (this.sortState + 1) % cycleLimit;
       }
-
-      if (
-        (cycleLimit === 2 && this.sortState === 1) ||
-        (cycleLimit === 3 && this.sortState === 2)
-      ) {
-        this.products = JSON.parse(
-          JSON.stringify(this.originalOrder)
-        );
+      if ((cycleLimit === 2 && this.sortState === 1) || (cycleLimit === 3 && this.sortState === 2)) {
+        this.products = JSON.parse(JSON.stringify(this.originalOrder));
         this.sortColumn = null;
         this.sortState = -1;
         return;
       }
-
       this.products.sort((a, b) => {
-        if (column === 'name')
-          return this.getDisplayName(a)
-            .localeCompare(this.getDisplayName(b));
-
-        if (column === 'percent')
-          return (
-            this.calculateDiscount(b) -
-            this.calculateDiscount(a)
-          );
-
-        const priceA =
-          parseFloat(
-            (
-              column === 'was'
-                ? a.standard_price
-                : a.current_price
-            ).replace(/[^0-9.]/g, '')
-          ) || 0;
-
-        const priceB =
-          parseFloat(
-            (
-              column === 'was'
-                ? b.standard_price
-                : b.current_price
-            ).replace(/[^0-9.]/g, '')
-          ) || 0;
-
-        return this.sortState === 0
-          ? priceA - priceB
-          : priceB - priceA;
+        if (column === 'name') return this.getDisplayName(a).localeCompare(this.getDisplayName(b));
+        if (column === 'percent') return this.calculateDiscount(b) - this.calculateDiscount(a);
+        const priceA = parseFloat((column === 'was' ? a.standard_price : a.current_price).replace(/[^0-9.]/g, '')) || 0;
+        const priceB = parseFloat((column === 'was' ? b.standard_price : b.current_price).replace(/[^0-9.]/g, '')) || 0;
+        return this.sortState === 0 ? priceA - priceB : priceB - priceA;
       });
     },
 
     init() {
-      chrome.runtime.sendMessage(
-        { action: "getRefreshStatus" },
-        (response) => {
-          if (response && response.isRefreshing)
-            this.isRefreshing = true;
+      chrome.runtime.sendMessage({ action: "getRefreshStatus" }, (response) => {
+        if (response && response.isRefreshing) this.isRefreshing = true;
+      });
+
+      chrome.runtime.onMessage.addListener((message) => {
+        if (message.action === "refreshStarted") this.isRefreshing = true;
+        if (message.action === "refreshFinished") {
+          this.isRefreshing = false;
+          chrome.action.setBadgeText({ text: "" });
         }
-      );
+        if (message.action === "trackError") {
+          this.errorMessage = message.message;
+          this.loading = false;
+        }
+      });
 
-      chrome.runtime.onMessage.addListener(
-        (message) => {
-          if (message.action === "refreshStarted")
-            this.isRefreshing = true;
-
-          if (message.action === "refreshFinished") {
-            this.isRefreshing = false;
-            chrome.action.setBadgeText({ text: "" });
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area === 'local' && changes.products) {
+          const newProducts = changes.products.newValue || [];
+          if (JSON.stringify(newProducts) !== JSON.stringify(this.products)) {
+            this.products = [...newProducts];
+            this.originalOrder = JSON.parse(JSON.stringify(newProducts));
+            this.sortColumn = null;
+            this.sortState = -1;
+            this.loading = false; 
+            this.errorMessage = '';
           }
         }
-      );
-
-      chrome.storage.onChanged.addListener(
-        (changes, area) => {
-          if (
-            area === 'local' &&
-            changes.products
-          ) {
-            const newProducts =
-              changes.products.newValue || [];
-
-            if (
-              JSON.stringify(newProducts) !==
-              JSON.stringify(this.products)
-            ) {
-              this.products = [...newProducts];
-              this.originalOrder =
-                JSON.parse(
-                  JSON.stringify(newProducts)
-                );
-              this.sortColumn = null;
-              this.sortState = -1;
-              this.loading = false;
-              this.errorMessage = '';
-            }
-          }
-        }
-      );
+      });
     },
   }));
 
